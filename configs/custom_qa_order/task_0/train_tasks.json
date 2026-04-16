@@ -1,0 +1,17 @@
+{
+  "QA": [
+    {
+      "sampling strategy": "full",
+      "dataset name": "task_0",
+      "data file": "task_0/train_mix/data.jsonl"
+    }
+  ],
+  "SC": [],
+  "TC": [],
+  "NLI": [],
+  "QQP": [],
+  "WiC": [],
+  "MultiRC": [],
+  "COPA": [],
+  "BoolQA": []
+}

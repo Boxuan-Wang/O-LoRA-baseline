@@ -241,6 +241,50 @@ class UIEInstructions(datasets.GeneratorBasedBuilder):
 
         return instances, labels
 
+    def _load_jsonl_dataset(self, dataset_path):
+        instances = []
+        with open(dataset_path, encoding="utf-8") as task_f:
+            for line in task_f:
+                line = line.strip()
+                if not line:
+                    continue
+                instances.append(json.loads(line))
+        return instances
+
+    def _resolve_qa_data_path(self, path, dataset, subset):
+        subset_file_key = f"{subset} file"
+        if subset_file_key in dataset:
+            candidate = dataset[subset_file_key]
+        elif "data file" in dataset:
+            candidate = dataset["data file"]
+        else:
+            ds_name = dataset["dataset name"]
+            split_candidates = {
+                "train": [
+                    os.path.join(ds_name, "train_mix", "data.jsonl"),
+                    os.path.join(ds_name, "train", "data.jsonl"),
+                ],
+                "dev": [
+                    os.path.join(ds_name, "val", "data.jsonl"),
+                    os.path.join(ds_name, "dev", "data.jsonl"),
+                ],
+                "test": [
+                    os.path.join(ds_name, "test", "data.jsonl"),
+                    os.path.join(ds_name, "val", "data.jsonl"),
+                ],
+            }
+            candidates = split_candidates.get(subset, []) + [
+                os.path.join(ds_name, "data.jsonl"),
+            ]
+            resolved = [os.path.join(path, c) for c in candidates if os.path.exists(os.path.join(path, c))]
+            if not resolved:
+                raise ValueError(f"Cannot find jsonl data file for {ds_name} under {path}")
+            return resolved[0]
+
+        if os.path.isabs(candidate):
+            return candidate
+        return os.path.join(path, candidate)
+
 
     def _get_instruction(self, task):
         assert self.config.instruction_strategy in INSTRUCTION_STRATEGIES
@@ -252,6 +296,13 @@ class UIEInstructions(datasets.GeneratorBasedBuilder):
             return task_instructions[0]
         else:
             return random.choice(task_instructions)
+
+    def _get_qa_instruction(self):
+        if self.config.instructions is not None:
+            for task_name in ("QA", "GEN", "CUSTOM_QA"):
+                if task_name in self.config.instructions.get("zero-shot", {}):
+                    return self._get_instruction(task_name) + "\n{0}\nAnswer:"
+        return "{0}\nAnswer:"
 
 
     def _sampling_dataset(self, instances, sampling_strategy, max_num_instances):
@@ -475,6 +526,30 @@ class UIEInstructions(datasets.GeneratorBasedBuilder):
 
             yield example
 
+    def load_QA_dataset(self, dataset_path, dataset_name, sampling_strategy, max_num_instances, subset):
+        instances = self._load_jsonl_dataset(dataset_path)
+        sample_template = {"Task": "QA", "Dataset": dataset_name, "Samples": [], "subset": subset}
+        instruction = self._get_qa_instruction()
+        instances = self._sampling_dataset(instances, sampling_strategy, max_num_instances)
+
+        for idx, instance in enumerate(instances):
+            if "question" not in instance or "answer" not in instance:
+                raise ValueError(
+                    f"Each JSONL row in {dataset_path} must include 'question' and 'answer' keys."
+                )
+
+            example = sample_template.copy()
+            question = str(instance["question"])
+            answer = str(instance["answer"])
+            example["Instance"] = {
+                "id": str(idx),
+                "sentence": question,
+                "label": answer,
+                "ground_truth": answer,
+                "instruction": instruction
+            }
+            yield example
+
 
     def _generate_examples(self, path=None, task_config=None, max_num_instances_per_task=None, subset=None):
         """Yields examples."""
@@ -497,6 +572,8 @@ class UIEInstructions(datasets.GeneratorBasedBuilder):
                 load_func = self.load_MultiRC_dataset
             elif task == 'WiC':
                 load_func = self.load_WiC_dataset
+            elif task in ['QA', 'GEN', 'CUSTOM_QA']:
+                load_func = self.load_QA_dataset
             else:
                 raise ValueError("Unsupport {} task, plz check {} task config!".format(task, subset))
 
@@ -504,15 +581,23 @@ class UIEInstructions(datasets.GeneratorBasedBuilder):
             for dataset in task_config[task]:
                 ds_name = dataset["dataset name"]
                 sampling_strategy = dataset.get("sampling strategy", "random")
-                ds_path = os.path.join(path, task, ds_name, subset + '.json')
-                labels_path = os.path.join(path, task, ds_name, 'labels.json')
-                assert os.path.exists(ds_path)
-                assert os.path.exists(labels_path)
+                if task in ['QA', 'GEN', 'CUSTOM_QA']:
+                    ds_path = self._resolve_qa_data_path(path, dataset, subset)
+                    labels_path = None
+                    assert os.path.exists(ds_path)
+                else:
+                    ds_path = os.path.join(path, task, ds_name, subset + '.json')
+                    labels_path = os.path.join(path, task, ds_name, 'labels.json')
+                    assert os.path.exists(ds_path)
+                    assert os.path.exists(labels_path)
 
                 idx = -1
                 instances = []
-                for sample in load_func(ds_path, labels_path, ds_name, sampling_strategy, max_num_instances_per_task,
-                                        subset):
+                if task in ['QA', 'GEN', 'CUSTOM_QA']:
+                    sample_iter = load_func(ds_path, ds_name, sampling_strategy, max_num_instances_per_task, subset)
+                else:
+                    sample_iter = load_func(ds_path, labels_path, ds_name, sampling_strategy, max_num_instances_per_task, subset)
+                for sample in sample_iter:
                     idx += 1
                     instances.append(sample)
                     yield f"{task}##{ds_path}##{idx}", sample

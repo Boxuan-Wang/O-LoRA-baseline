@@ -1,0 +1,17 @@
+{
+  "QA": [
+    {
+      "sampling strategy": "full",
+      "dataset name": "task_1",
+      "data file": "task_1/val/data.jsonl"
+    }
+  ],
+  "SC": [],
+  "TC": [],
+  "NLI": [],
+  "QQP": [],
+  "WiC": [],
+  "MultiRC": [],
+  "COPA": [],
+  "BoolQA": []
+}

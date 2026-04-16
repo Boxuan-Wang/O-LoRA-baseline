@@ -95,10 +95,18 @@ class LlamaForCausalLM_with_lossmask(LlamaForCausalLM):
             shift_labels = labels[..., 1:].contiguous()
             batch_size, seq_length, vocab_size = shift_logits.shape
             # Flatten the tokens
-            loss = F.cross_entropy(shift_logits.view(batch_size * seq_length, vocab_size), shift_labels.view(batch_size * seq_length),reduction='none')
-            if loss_mask != None:
-                loss = loss * loss_mask[..., :-1].contiguous().view(-1)
-            loss = loss.sum()/loss_mask.sum()
+            loss = F.cross_entropy(
+                shift_logits.view(batch_size * seq_length, vocab_size),
+                shift_labels.view(batch_size * seq_length),
+                reduction='none',
+                ignore_index=-100
+            )
+            if loss_mask is not None:
+                flat_mask = loss_mask[..., :-1].contiguous().view(-1).float()
+                loss = (loss * flat_mask).sum() / flat_mask.sum().clamp(min=1.0)
+            else:
+                valid_mask = shift_labels.ne(-100).contiguous().view(-1).float()
+                loss = (loss * valid_mask).sum() / valid_mask.sum().clamp(min=1.0)
 
         if not return_dict:
             output = (logits,) + outputs[1:]

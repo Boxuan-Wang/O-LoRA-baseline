@@ -193,7 +193,14 @@ class DataCollatorForUIE:
             )
 
             label_mask = model_inputs["attention_mask"].bool()
-            model_inputs["labels"] = model_inputs['input_ids'].masked_fill(~label_mask, self.label_pad_token_id)
+            model_inputs["labels"] = model_inputs["input_ids"].clone().masked_fill(~label_mask, self.label_pad_token_id)
+            # Supervise decoder-only models only on answer tokens.
+            for idx, label_len in enumerate(label_lens):
+                if label_len <= 0:
+                    model_inputs["labels"][idx, :] = self.label_pad_token_id
+                    continue
+                answer_start = max(0, model_inputs["labels"].shape[1] - int(label_len))
+                model_inputs["labels"][idx, :answer_start] = self.label_pad_token_id
 
             # loss mask
             max_len = min(max_len, limit_input_len)
