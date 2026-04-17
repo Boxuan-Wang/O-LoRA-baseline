@@ -31,9 +31,17 @@ AUX_PROB = 0.3
 
 
 def gen_cache_path(cache_dir, data_args):
-    hash_str = data_args.data_dir + data_args.task_config_dir + \
-               data_args.instruction_file + data_args.instruction_strategy + \
-               str(data_args.max_num_instances_per_task) + str(data_args.max_num_instances_per_eval_task)
+    # Some CLI args (e.g. instruction_file) are optional and can be None.
+    # Build a deterministic cache key without assuming string-only values.
+    hash_parts = [
+        data_args.data_dir,
+        data_args.task_config_dir,
+        data_args.instruction_file,
+        data_args.instruction_strategy,
+        data_args.max_num_instances_per_task,
+        data_args.max_num_instances_per_eval_task,
+    ]
+    hash_str = "||".join("" if part is None else str(part) for part in hash_parts)
     hash_obj = md5(hash_str.encode("utf-8"))
     hash_id = hash_obj.hexdigest()
     cache_path = os.path.join(cache_dir, str(hash_id))
