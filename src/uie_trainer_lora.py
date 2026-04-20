@@ -88,7 +88,8 @@ class UIETrainer(Seq2SeqTrainer):
         if self.args.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training
 
-        if self.args.gradient_accumulation_steps > 1 and not self.deepspeed:
+        deepspeed_engine = getattr(self, "deepspeed", None)
+        if self.args.gradient_accumulation_steps > 1 and not deepspeed_engine:
             # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
             loss = loss / self.args.gradient_accumulation_steps
 
@@ -114,16 +115,20 @@ class UIETrainer(Seq2SeqTrainer):
         loss = loss + orthogonal_loss * lamda_1 + l2_loss * lamda_2
         ######################################################################
 
-        if self.do_grad_scaling:
+        if getattr(self, "do_grad_scaling", False) and getattr(self, "scaler", None) is not None:
             self.scaler.scale(loss).backward()
-        elif self.use_apex:
+        elif getattr(self, "use_apex", False):
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
-        elif self.deepspeed:
+        elif deepspeed_engine:
             # loss gets scaled under gradient_accumulation_steps in deepspeed
-            loss = self.deepspeed.backward(loss)
+            loss = deepspeed_engine.backward(loss)
         else:
-            loss.backward()
+            accelerator = getattr(self, "accelerator", None)
+            if accelerator is not None:
+                accelerator.backward(loss)
+            else:
+                loss.backward()
 
         return loss.detach()
 
