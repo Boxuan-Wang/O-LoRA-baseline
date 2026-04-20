@@ -147,7 +147,11 @@ def load_pretrained_model(model_class, model_path, **kwargs):
             import safetensors  # noqa: F401
         except ImportError as exc:
             raise RuntimeError(
-                f"Detected safetensors-only checkpoint at {model_path}, but `safetensors` is not installed."
+                "Detected safetensors-only checkpoint at {} but `safetensors` is not installed.\n"
+                "Install it in the current environment:\n"
+                "  pip install safetensors\n"
+                "or:\n"
+                "  /opt/conda/envs/olora311/bin/python -m pip install safetensors".format(model_path)
             ) from exc
 
     try:
