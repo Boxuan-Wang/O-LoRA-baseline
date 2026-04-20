@@ -41,8 +41,8 @@ from modelscope import (
     HfArgumentParser,
     Seq2SeqTrainingArguments,
     set_seed, )
-from modelscope.file_utils import is_offline_mode
-from modelscope.trainer_utils import get_last_checkpoint
+from transformers.file_utils import is_offline_mode
+from transformers.trainer_utils import get_last_checkpoint
 from peft import get_peft_config, get_peft_model, LoraConfig, TaskType, PeftModel, PeftConfig # add
 
 from uie_collator import DataCollatorForUIE
