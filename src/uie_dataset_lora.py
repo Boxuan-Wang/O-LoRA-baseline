@@ -655,7 +655,7 @@ def load_local_uie_dataset_dict(
     """
     Build DatasetDict directly from local task files without HF dataset script download/prepare flow.
     """
-    cfg = UIEConfig(
+    builder = UIEInstructions(
         name="default",
         data_dir=data_dir,
         instruction_file=instruction_file,
@@ -665,7 +665,7 @@ def load_local_uie_dataset_dict(
         max_num_instances_per_eval_task=max_num_instances_per_eval_task,
         num_examples=num_examples,
     )
-    builder = UIEInstructions(config=cfg)
+    cfg = builder.config
     features = builder._info().features
 
     split_specs = [
