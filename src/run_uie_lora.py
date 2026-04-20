@@ -41,6 +41,7 @@ from modelscope import (
     HfArgumentParser,
     Seq2SeqTrainingArguments,
     set_seed, )
+from modelscope.hub.snapshot_download import snapshot_download
 
 import transformers
 from transformers.file_utils import is_offline_mode
@@ -57,6 +58,29 @@ from model.llama import LlamaForCausalLM_with_lossmask
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 logger = logging.getLogger(__name__)
 CURRENT_DIR = os.path.dirname(__file__)
+
+
+def resolve_modelscope_path(model_id_or_path, cache_dir=None, revision="main"):
+    """
+    Resolve a local model path. For remote IDs, download through ModelScope only.
+    """
+    if model_id_or_path is None:
+        return None
+    if os.path.exists(model_id_or_path):
+        return model_id_or_path
+
+    # ModelScope typically uses "master" while HF-style args often pass "main".
+    ms_revision = "master" if revision in (None, "main") else revision
+    try:
+        return snapshot_download(
+            model_id=model_id_or_path,
+            cache_dir=cache_dir,
+            revision=ms_revision,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to resolve model/tokenizer/config from ModelScope: {model_id_or_path}"
+        ) from exc
 
 try:
     nltk.data.find("tokenizers/punkt")
@@ -306,15 +330,46 @@ def main():
         num_examples=data_args.num_examples,
     )
 
+    resolved_model_path = resolve_modelscope_path(
+        model_args.model_name_or_path,
+        cache_dir=model_args.cache_dir,
+        revision=model_args.model_revision,
+    )
+    resolved_config_path = resolve_modelscope_path(
+        model_args.config_name if model_args.config_name else resolved_model_path,
+        cache_dir=model_args.cache_dir,
+        revision=model_args.model_revision,
+    )
+    resolved_tokenizer_path = resolve_modelscope_path(
+        model_args.tokenizer_name if model_args.tokenizer_name else resolved_model_path,
+        cache_dir=model_args.cache_dir,
+        revision=model_args.model_revision,
+    )
+
     # Load pretrained model and tokenizer
     #
     # Distributed training:
     # The .from_pretrained methods guarantee that only one local process can concurrently
     # download model & vocab.
     if 'adapter' in model_args.model_name_or_path: # load lora-config
-        config = PeftConfig.from_pretrained(model_args.model_name_or_path)
+        adapter_path = resolve_modelscope_path(
+            model_args.model_name_or_path,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+        )
+        config = PeftConfig.from_pretrained(adapter_path)
+        base_model_path = resolve_modelscope_path(
+            config.base_model_name_or_path,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+        )
         if 'llama' in model_args.model_name_or_path.lower():
-            tokenizer = transformers.LlamaTokenizer.from_pretrained(config.base_model_name_or_path)
+            tokenizer = AutoTokenizer.from_pretrained(
+                base_model_path,
+                cache_dir=model_args.cache_dir,
+                use_fast=model_args.use_fast_tokenizer,
+                revision=model_args.model_revision,
+            )
             config.bos_token_id = 1
             config.eos_token_id = 2
             config.pad_token_id = 1
@@ -322,40 +377,41 @@ def main():
             tokenizer.eos_token_id = 2
             tokenizer.pad_token_id = 1
         else:
-            tokenizer = AutoTokenizer.from_pretrained(config.base_model_name_or_path)
+            tokenizer = AutoTokenizer.from_pretrained(
+                base_model_path,
+                cache_dir=model_args.cache_dir,
+                use_fast=model_args.use_fast_tokenizer,
+                revision=model_args.model_revision,
+            )
     elif 'llama' in model_args.model_name_or_path.lower():
         config = AutoConfig.from_pretrained(
-            model_args.model_name_or_path,
+            resolved_model_path,
             cache_dir=model_args.cache_dir,
             revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
         )
         config.bos_token_id = 1
         config.eos_token_id = 2
         config.pad_token_id = 1
-        tokenizer = transformers.LlamaTokenizer.from_pretrained(
-            model_args.model_name_or_path,
+        tokenizer = AutoTokenizer.from_pretrained(
+            resolved_model_path,
             cache_dir = model_args.cache_dir,
             use_fast = model_args.use_fast_tokenizer,
             revision = model_args.model_revision,
-            use_auth_token = True if model_args.use_auth_token else None,
         )
         tokenizer.bos_token_id = 1
         tokenizer.eos_token_id = 2
         tokenizer.pad_token_id = 1
     else: # load original config
         config = AutoConfig.from_pretrained(
-            model_args.config_name if model_args.config_name else model_args.model_name_or_path,
+            resolved_config_path,
             cache_dir=model_args.cache_dir,
             revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
         )
         tokenizer = AutoTokenizer.from_pretrained(
-            model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
+            resolved_tokenizer_path,
             cache_dir=model_args.cache_dir,
             use_fast=model_args.use_fast_tokenizer,
             revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
         )
 
     if 'llama' in model_args.model_name_or_path.lower():  # add llama
@@ -365,16 +421,15 @@ def main():
         model_class = AutoModelForSeq2SeqLM
 
     if 'adapter' in model_args.model_name_or_path: # add lora-adapter to the original model
-        model = model_class.from_pretrained(config.base_model_name_or_path)
-        model = PeftModel.from_pretrained(model, model_args.model_name_or_path)
+        model = model_class.from_pretrained(base_model_path)
+        model = PeftModel.from_pretrained(model, adapter_path)
     elif 'llama' in model_args.model_name_or_path.lower():
         model = model_class.from_pretrained(
-            model_args.model_name_or_path,
-            from_tf=bool(".ckpt" in model_args.model_name_or_path),
+            resolved_model_path,
+            from_tf=bool(".ckpt" in resolved_model_path),
             config=config,
             cache_dir=model_args.cache_dir,
             revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None
         )
         peft_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM, inference_mode=False, r=model_args.lora_dim, lora_alpha=32, lora_dropout=0.1
@@ -382,12 +437,11 @@ def main():
         model = get_peft_model(model, peft_config)
     else:
         model = model_class.from_pretrained(
-            model_args.model_name_or_path,
-            from_tf=bool(".ckpt" in model_args.model_name_or_path),
+            resolved_model_path,
+            from_tf=bool(".ckpt" in resolved_model_path),
             config=config,
             cache_dir=model_args.cache_dir,
             revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
         )
         peft_config = LoraConfig(
             task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=model_args.lora_dim, lora_alpha=32, lora_dropout=0.1
