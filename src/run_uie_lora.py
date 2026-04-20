@@ -30,7 +30,7 @@ import datasets
 import nltk  # Here to have a nice missing dependency error message early on
 import numpy as np
 
-# import transformers
+
 from filelock import FileLock
 from modelscope import (
     AutoConfig,
@@ -41,6 +41,8 @@ from modelscope import (
     HfArgumentParser,
     Seq2SeqTrainingArguments,
     set_seed, )
+
+import transformers
 from transformers.file_utils import is_offline_mode
 from transformers.trainer_utils import get_last_checkpoint
 from peft import get_peft_config, get_peft_model, LoraConfig, TaskType, PeftModel, PeftConfig # add
