@@ -641,3 +641,51 @@ class UIEInstructions(datasets.GeneratorBasedBuilder):
                     idx += 1
                     instances.append(sample)
                     yield f"{task}##{ds_path}##{idx}", sample
+
+
+def load_local_uie_dataset_dict(
+        data_dir,
+        task_config_dir,
+        instruction_file=None,
+        instruction_strategy='single',
+        max_num_instances_per_task=10000,
+        max_num_instances_per_eval_task=200,
+        num_examples=0,
+):
+    """
+    Build DatasetDict directly from local task files without HF dataset script download/prepare flow.
+    """
+    cfg = UIEConfig(
+        name="default",
+        data_dir=data_dir,
+        instruction_file=instruction_file,
+        instruction_strategy=instruction_strategy,
+        task_config_dir=task_config_dir,
+        max_num_instances_per_task=max_num_instances_per_task,
+        max_num_instances_per_eval_task=max_num_instances_per_eval_task,
+        num_examples=num_examples,
+    )
+    builder = UIEInstructions(config=cfg)
+    features = builder._info().features
+
+    split_specs = [
+        ("train", "train", "train", cfg.max_num_instances_per_task),
+        ("validation", "dev", "dev", cfg.max_num_instances_per_eval_task),
+        ("test", "test", "test", None),
+    ]
+
+    dataset_splits = {}
+    for split_name, task_key, subset, max_num in split_specs:
+        task_config = cfg.task_configs.get(task_key, {})
+        records = [
+            sample
+            for _, sample in builder._generate_examples(
+                path=cfg.data_dir,
+                task_config=task_config,
+                max_num_instances_per_task=max_num,
+                subset=subset,
+            )
+        ]
+        dataset_splits[split_name] = datasets.Dataset.from_list(records, features=features)
+
+    return datasets.DatasetDict(dataset_splits)

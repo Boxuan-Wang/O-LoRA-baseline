@@ -29,7 +29,6 @@ from typing import Optional
 import datasets
 import nltk  # Here to have a nice missing dependency error message early on
 import numpy as np
-from datasets import load_dataset
 
 import transformers
 from filelock import FileLock
@@ -47,7 +46,7 @@ from transformers.trainer_utils import get_last_checkpoint
 from peft import get_peft_config, get_peft_model, LoraConfig, TaskType, PeftModel, PeftConfig # add
 
 from uie_collator import DataCollatorForUIE
-from uie_dataset_lora import gen_cache_path
+from uie_dataset_lora import load_local_uie_dataset_dict
 
 from uie_trainer_lora import UIETrainer, DenserEvalCallback, skip_instructions
 from compute_metrics import compute_metrics, compute_grouped_metrics
@@ -293,19 +292,16 @@ def main():
 
     # Set seed before initializing model.
     set_seed(training_args.seed)
-    data_cache_dir = gen_cache_path(training_args.output_dir, data_args)
 
     # Get the UIE dataset
-    raw_datasets = load_dataset(
-        os.path.join(CURRENT_DIR, "uie_dataset_lora.py"),
+    raw_datasets = load_local_uie_dataset_dict(
         data_dir=data_args.data_dir,
         task_config_dir=data_args.task_config_dir,
         instruction_file=data_args.instruction_file,
         instruction_strategy=data_args.instruction_strategy,
-        cache_dir=data_cache_dir,  # for debug, change dataset size, otherwise open it
         max_num_instances_per_task=data_args.max_num_instances_per_task,
         max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
-        num_examples=data_args.num_examples
+        num_examples=data_args.num_examples,
     )
 
     # Load pretrained model and tokenizer
