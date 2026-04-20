@@ -32,7 +32,7 @@ import numpy as np
 
 import transformers
 from filelock import FileLock
-from transformers import (
+from modelscope import (
     AutoConfig,
     AutoModel,
     AutoModelForSeq2SeqLM,
