@@ -307,7 +307,6 @@ def main():
         max_num_instances_per_eval_task=data_args.max_num_instances_per_eval_task,
         num_examples=data_args.num_examples
     )
-    raw_datasets.cleanup_cache_files()
 
     # Load pretrained model and tokenizer
     #
