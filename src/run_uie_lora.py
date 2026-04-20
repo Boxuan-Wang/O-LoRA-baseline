@@ -23,6 +23,7 @@ import os
 import sys
 import json
 import time
+import glob
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -60,7 +61,7 @@ logger = logging.getLogger(__name__)
 CURRENT_DIR = os.path.dirname(__file__)
 
 
-def resolve_modelscope_path(model_id_or_path, cache_dir=None, revision="main"):
+def resolve_modelscope_path(model_id_or_path, cache_dir=None, revision="main", require_model_weights=False):
     """
     Resolve a local model path. For remote IDs, download through ModelScope only.
     """
@@ -69,18 +70,101 @@ def resolve_modelscope_path(model_id_or_path, cache_dir=None, revision="main"):
     if os.path.exists(model_id_or_path):
         return model_id_or_path
 
+    def _has_model_weights(path):
+        if not path or not os.path.isdir(path):
+            return False
+        weight_globs = [
+            "pytorch_model*.bin",
+            "model.safetensors",
+            "model.safetensors.index.json",
+            "*.safetensors",
+        ]
+        return any(glob.glob(os.path.join(path, pattern)) for pattern in weight_globs)
+
+    def _candidate_paths(model_id, cache_root, downloaded_path):
+        candidates = []
+        if downloaded_path:
+            candidates.append(downloaded_path)
+        if cache_root:
+            candidates.append(os.path.join(cache_root, model_id))
+            candidates.append(os.path.join(cache_root, model_id.replace(".", "___")))
+            if "/" in model_id:
+                org, repo = model_id.split("/", 1)
+                candidates.append(os.path.join(cache_root, org, repo))
+                candidates.append(os.path.join(cache_root, org, repo.replace(".", "___")))
+        deduped = []
+        seen = set()
+        for candidate in candidates:
+            norm = os.path.normpath(candidate)
+            if norm not in seen:
+                deduped.append(norm)
+                seen.add(norm)
+        return deduped
+
     # ModelScope typically uses "master" while HF-style args often pass "main".
     ms_revision = "master" if revision in (None, "main") else revision
     try:
-        return snapshot_download(
+        downloaded_path = snapshot_download(
             model_id=model_id_or_path,
             cache_dir=cache_dir,
             revision=ms_revision,
         )
+        candidates = _candidate_paths(model_id_or_path, cache_dir, downloaded_path)
+        for candidate in candidates:
+            if _has_model_weights(candidate):
+                return candidate
+        if require_model_weights:
+            raise FileNotFoundError(
+                "No model weight files found after ModelScope download. Checked: {}".format(
+                    ", ".join(candidates)
+                )
+            )
+        # For tokenizer/config-only repos, return downloaded path even without model weights.
+        return downloaded_path
     except Exception as exc:
         raise RuntimeError(
             f"Failed to resolve model/tokenizer/config from ModelScope: {model_id_or_path}"
         ) from exc
+
+
+def has_safetensors_only_weights(model_path):
+    if not model_path or not os.path.isdir(model_path):
+        return False
+    has_bin = bool(glob.glob(os.path.join(model_path, "pytorch_model*.bin")))
+    has_safetensors = bool(glob.glob(os.path.join(model_path, "*.safetensors"))) or os.path.exists(
+        os.path.join(model_path, "model.safetensors.index.json")
+    )
+    return has_safetensors and not has_bin
+
+
+def load_pretrained_model(model_class, model_path, **kwargs):
+    """
+    Load model weights with explicit support for sharded safetensors-only snapshots.
+    """
+    safetensors_only = has_safetensors_only_weights(model_path)
+    if safetensors_only:
+        try:
+            import safetensors  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                f"Detected safetensors-only checkpoint at {model_path}, but `safetensors` is not installed."
+            ) from exc
+
+    try:
+        if safetensors_only:
+            try:
+                return model_class.from_pretrained(model_path, use_safetensors=True, **kwargs)
+            except TypeError:
+                # Older transformers may not expose this kwarg; fall through to default loader.
+                pass
+        return model_class.from_pretrained(model_path, **kwargs)
+    except OSError as exc:
+        if safetensors_only:
+            raise OSError(
+                f"{exc}\nDetected safetensors-only checkpoint under {model_path}. "
+                "Please ensure transformers+safetensors versions support sharded safetensors loading."
+            ) from exc
+        raise
 
 try:
     nltk.data.find("tokenizers/punkt")
@@ -334,6 +418,7 @@ def main():
         model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
+        require_model_weights=True,
     )
     resolved_config_path = resolve_modelscope_path(
         model_args.config_name if model_args.config_name else resolved_model_path,
@@ -362,6 +447,7 @@ def main():
             config.base_model_name_or_path,
             cache_dir=model_args.cache_dir,
             revision=model_args.model_revision,
+            require_model_weights=True,
         )
         if 'llama' in model_args.model_name_or_path.lower():
             tokenizer = AutoTokenizer.from_pretrained(
@@ -421,10 +507,11 @@ def main():
         model_class = AutoModelForSeq2SeqLM
 
     if 'adapter' in model_args.model_name_or_path: # add lora-adapter to the original model
-        model = model_class.from_pretrained(base_model_path)
+        model = load_pretrained_model(model_class, base_model_path)
         model = PeftModel.from_pretrained(model, adapter_path)
     elif 'llama' in model_args.model_name_or_path.lower():
-        model = model_class.from_pretrained(
+        model = load_pretrained_model(
+            model_class,
             resolved_model_path,
             from_tf=bool(".ckpt" in resolved_model_path),
             config=config,
@@ -436,7 +523,8 @@ def main():
         )
         model = get_peft_model(model, peft_config)
     else:
-        model = model_class.from_pretrained(
+        model = load_pretrained_model(
+            model_class,
             resolved_model_path,
             from_tf=bool(".ckpt" in resolved_model_path),
             config=config,
