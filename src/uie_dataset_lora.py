@@ -260,6 +260,20 @@ class UIEInstructions(datasets.GeneratorBasedBuilder):
         return instances
 
     def _resolve_qa_data_path(self, path, dataset, subset):
+        def _variants(candidate_path):
+            variants = [candidate_path]
+            # Backward compatibility: some datasets use train_mix, newer ones use train_mixed.
+            if "train_mix/" in candidate_path:
+                variants.append(candidate_path.replace("train_mix/", "train_mixed/"))
+            if "train_mixed/" in candidate_path:
+                variants.append(candidate_path.replace("train_mixed/", "train_mix/"))
+            # Support both val and dev naming for evaluation splits.
+            if "/val/" in candidate_path:
+                variants.append(candidate_path.replace("/val/", "/dev/"))
+            if "/dev/" in candidate_path:
+                variants.append(candidate_path.replace("/dev/", "/val/"))
+            return variants
+
         subset_file_key = f"{subset} file"
         if subset_file_key in dataset:
             candidate = dataset[subset_file_key]
@@ -289,9 +303,24 @@ class UIEInstructions(datasets.GeneratorBasedBuilder):
                 raise ValueError(f"Cannot find jsonl data file for {ds_name} under {path}")
             return resolved[0]
 
-        if os.path.isabs(candidate):
-            return candidate
-        return os.path.join(path, candidate)
+        resolved_candidates = []
+        for candidate_variant in _variants(candidate):
+            if os.path.isabs(candidate_variant):
+                resolved_candidates.append(candidate_variant)
+            else:
+                resolved_candidates.append(os.path.join(path, candidate_variant))
+
+        for resolved_candidate in resolved_candidates:
+            if os.path.exists(resolved_candidate):
+                return resolved_candidate
+
+        raise FileNotFoundError(
+            "Cannot find QA data file for dataset '{}', subset '{}'. Tried: {}".format(
+                dataset.get("dataset name", "unknown"),
+                subset,
+                ", ".join(resolved_candidates),
+            )
+        )
 
 
     def _get_instruction(self, task):
@@ -592,12 +621,15 @@ class UIEInstructions(datasets.GeneratorBasedBuilder):
                 if task in ['QA', 'GEN', 'CUSTOM_QA']:
                     ds_path = self._resolve_qa_data_path(path, dataset, subset)
                     labels_path = None
-                    assert os.path.exists(ds_path)
+                    if not os.path.exists(ds_path):
+                        raise FileNotFoundError(f"Dataset file not found: {ds_path}")
                 else:
                     ds_path = os.path.join(path, task, ds_name, subset + '.json')
                     labels_path = os.path.join(path, task, ds_name, 'labels.json')
-                    assert os.path.exists(ds_path)
-                    assert os.path.exists(labels_path)
+                    if not os.path.exists(ds_path):
+                        raise FileNotFoundError(f"Dataset file not found: {ds_path}")
+                    if not os.path.exists(labels_path):
+                        raise FileNotFoundError(f"Labels file not found: {labels_path}")
 
                 idx = -1
                 instances = []

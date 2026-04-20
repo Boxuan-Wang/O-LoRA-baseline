@@ -53,8 +53,6 @@ from uie_trainer_lora import UIETrainer, DenserEvalCallback, skip_instructions
 from compute_metrics import compute_metrics, compute_grouped_metrics
 from model.llama import LlamaForCausalLM_with_lossmask
 
-# off wandb
-os.environ['WANDB_DISABLED'] = "True"
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 logger = logging.getLogger(__name__)
 CURRENT_DIR = os.path.dirname(__file__)
@@ -253,6 +251,10 @@ def main():
         model_args, data_args, training_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+
+    # Keep historical behavior (no external experiment tracker) without WANDB_DISABLED deprecation.
+    if training_args.report_to in (None, "all", ["all"]):
+        training_args.report_to = ["none"]
 
     # Setup logging
     logging.basicConfig(
