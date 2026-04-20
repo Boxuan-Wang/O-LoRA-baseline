@@ -3,6 +3,13 @@ from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
 from transformers.trainer_callback import TrainerCallback
+try:
+    from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled as _hf_is_deepspeed_zero3_enabled
+except Exception:
+    try:
+        from transformers.deepspeed import is_deepspeed_zero3_enabled as _hf_is_deepspeed_zero3_enabled
+    except Exception:
+        _hf_is_deepspeed_zero3_enabled = None
 
 from uie_collator import SUPPORTED_DECODER_MODELS, check_model
 from uie_dataset_lora import ANSWER_PREFIX
@@ -342,7 +349,10 @@ class UIETrainer(Seq2SeqTrainer):
 
         # XXX: adapt synced_gpus for fairscale as well
         gen_kwargs = self._gen_kwargs
-        gen_kwargs["synced_gpus"] = True if is_deepspeed_zero3_enabled() else False
+        if _hf_is_deepspeed_zero3_enabled is None:
+            gen_kwargs["synced_gpus"] = False
+        else:
+            gen_kwargs["synced_gpus"] = True if _hf_is_deepspeed_zero3_enabled() else False
 
         if "attention_mask" in inputs:
             gen_kwargs["attention_mask"] = inputs.get("attention_mask", None)
