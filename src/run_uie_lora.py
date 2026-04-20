@@ -170,6 +170,24 @@ def load_pretrained_model(model_class, model_path, **kwargs):
             ) from exc
         raise
 
+
+def _parse_version_tuple(version_str):
+    parts = []
+    for token in version_str.split("."):
+        num = ""
+        for ch in token:
+            if ch.isdigit():
+                num += ch
+            else:
+                break
+        if num == "":
+            parts.append(0)
+        else:
+            parts.append(int(num))
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts[:3])
+
 try:
     nltk.data.find("tokenizers/punkt")
 except (LookupError, OSError):
@@ -503,6 +521,26 @@ def main():
             use_fast=model_args.use_fast_tokenizer,
             revision=model_args.model_revision,
         )
+
+    # Llama-3.x checkpoints are grouped-query-attention models (num_key_value_heads < num_attention_heads).
+    # transformers 4.28 cannot construct matching projection shapes and will fail with large size-mismatch logs.
+    if 'llama' in model_args.model_name_or_path.lower():
+        num_attention_heads = getattr(config, "num_attention_heads", None)
+        num_key_value_heads = getattr(config, "num_key_value_heads", None)
+        if (
+            num_attention_heads is not None
+            and num_key_value_heads is not None
+            and num_key_value_heads < num_attention_heads
+        ):
+            if _parse_version_tuple(transformers.__version__) < (4, 43, 0):
+                raise RuntimeError(
+                    "This model uses grouped-query attention (e.g., Llama-3.x), but current transformers=={} "
+                    "is too old and causes k_proj/v_proj size mismatch. "
+                    "Please upgrade transformers in the running environment, e.g.:\n"
+                    "  /opt/conda/envs/olora311/bin/python -m pip install 'transformers>=4.43,<4.50'".format(
+                        transformers.__version__
+                    )
+                )
 
     if 'llama' in model_args.model_name_or_path.lower():  # add llama
         model_class = LlamaForCausalLM_with_lossmask
