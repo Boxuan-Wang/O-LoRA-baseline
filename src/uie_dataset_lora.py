@@ -688,6 +688,14 @@ def load_local_uie_dataset_dict(
                 subset=subset,
             )
         ]
-        dataset_splits[split_name] = datasets.Dataset.from_list(records, features=features)
+        if hasattr(datasets.Dataset, "from_list"):
+            dataset_splits[split_name] = datasets.Dataset.from_list(records, features=features)
+        else:
+            # Compatibility with older datasets versions that only expose Dataset.from_dict.
+            if records:
+                column_data = {key: [row[key] for row in records] for key in records[0].keys()}
+            else:
+                column_data = {key: [] for key in features.keys()}
+            dataset_splits[split_name] = datasets.Dataset.from_dict(column_data, features=features)
 
     return datasets.DatasetDict(dataset_splits)
