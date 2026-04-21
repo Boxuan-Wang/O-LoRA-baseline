@@ -385,7 +385,8 @@ def main():
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
     # Force-disable external trackers (including wandb) for non-interactive training runs.
-    training_args.report_to = ["none"]
+    # Newer transformers may reject "none" as an integration key; use empty list instead.
+    training_args.report_to = []
 
     # Setup logging
     logging.basicConfig(
