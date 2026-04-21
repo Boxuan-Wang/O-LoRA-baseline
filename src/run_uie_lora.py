@@ -59,6 +59,7 @@ from model.llama import LlamaForCausalLM_with_lossmask
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 logger = logging.getLogger(__name__)
 CURRENT_DIR = os.path.dirname(__file__)
+os.environ.setdefault("WANDB_MODE", "disabled")
 
 
 def resolve_modelscope_path(model_id_or_path, cache_dir=None, revision="main", require_model_weights=False):
@@ -383,9 +384,8 @@ def main():
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
-    # Keep historical behavior (no external experiment tracker) without WANDB_DISABLED deprecation.
-    if training_args.report_to in (None, "all", ["all"]):
-        training_args.report_to = ["none"]
+    # Force-disable external trackers (including wandb) for non-interactive training runs.
+    training_args.report_to = ["none"]
 
     # Setup logging
     logging.basicConfig(
