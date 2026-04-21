@@ -58,6 +58,35 @@ class DenserEvalCallback(TrainerCallback):
 
 
 class UIETrainer(Seq2SeqTrainer):
+    def _maybe_log_trainable_parameters(self):
+        logging_steps = int(getattr(self.args, "logging_steps", 0) or 0)
+        current_step = int(getattr(self.state, "global_step", 0) or 0)
+        if logging_steps <= 0 or current_step <= 0:
+            return
+        if current_step % logging_steps != 0:
+            return
+        if not self.is_world_process_zero():
+            return
+        last_logged_step = getattr(self, "_last_trainable_log_step", -1)
+        if last_logged_step == current_step:
+            return
+
+        trainable_params = 0
+        total_params = 0
+        for _, param in self.model.named_parameters():
+            n = param.numel()
+            total_params += n
+            if param.requires_grad:
+                trainable_params += n
+
+        logger.info(
+            "Trainable params at step %s: %s/%s (%.4f%%)",
+            current_step,
+            trainable_params,
+            total_params,
+            100.0 * trainable_params / max(total_params, 1),
+        )
+        self._last_trainable_log_step = current_step
 
     def training_step(
         self,
@@ -136,6 +165,8 @@ class UIETrainer(Seq2SeqTrainer):
                 accelerator.backward(loss)
             else:
                 loss.backward()
+
+        self._maybe_log_trainable_parameters()
 
         return loss.detach()
 
