@@ -79,7 +79,7 @@ class UIETrainer(Seq2SeqTrainer):
             if param.requires_grad:
                 trainable_params += n
 
-        logger.info(
+        logger.warning(
             "Trainable params at step %s: %s/%s (%.4f%%)",
             current_step,
             trainable_params,
