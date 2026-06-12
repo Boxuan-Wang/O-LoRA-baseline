@@ -26,6 +26,7 @@ import time
 import glob
 from dataclasses import dataclass, field
 from typing import Optional
+from typing import Dict, Union, Any
 
 import datasets
 import nltk  # Here to have a nice missing dependency error message early on
@@ -33,8 +34,8 @@ import numpy as np
 
 
 from filelock import FileLock
+from transformers import AutoConfig
 from modelscope import (
-    AutoConfig,
     AutoModel,
     AutoModelForSeq2SeqLM,
     AutoModelForCausalLM,  # add
@@ -523,6 +524,10 @@ def main():
             revision=model_args.model_revision,
         )
 
+    # Ensure a padding token is always set (required for batching).
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
     # Llama-3.x checkpoints are grouped-query-attention models (num_key_value_heads < num_attention_heads).
     # transformers 4.28 cannot construct matching projection shapes and will fail with large size-mismatch logs.
     if 'llama' in model_args.model_name_or_path.lower():
@@ -547,7 +552,7 @@ def main():
         model_class = LlamaForCausalLM_with_lossmask
         tokenizer.padding_side = 'left'
     else: 
-        model_class = AutoModelForSeq2SeqLM
+        model_class = AutoModelForCausalLM
 
     if 'adapter' in model_args.model_name_or_path: # add lora-adapter to the original model
         model = load_pretrained_model(model_class, base_model_path)
@@ -562,7 +567,8 @@ def main():
             revision=model_args.model_revision,
         )
         peft_config = LoraConfig(
-            task_type=TaskType.CAUSAL_LM, inference_mode=False, r=model_args.lora_dim, lora_alpha=32, lora_dropout=0.1
+            task_type=TaskType.CAUSAL_LM, inference_mode=False, r=model_args.lora_dim, lora_alpha=32, lora_dropout=0.1,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         )
         model = get_peft_model(model, peft_config)
     else:
@@ -575,7 +581,8 @@ def main():
             revision=model_args.model_revision,
         )
         peft_config = LoraConfig(
-            task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=model_args.lora_dim, lora_alpha=32, lora_dropout=0.1
+            task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=model_args.lora_dim, lora_alpha=32, lora_dropout=0.1,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         )
         model = get_peft_model(model, peft_config)
 

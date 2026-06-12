@@ -3,6 +3,7 @@ from transformers import GenerationConfig
 from transformers.trainer_seq2seq import Seq2SeqTrainer
 from transformers.trainer import *
 from transformers.trainer_callback import TrainerCallback
+from typing import Dict, Union, Any, List, Tuple
 try:
     from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled as _hf_is_deepspeed_zero3_enabled
 except Exception:

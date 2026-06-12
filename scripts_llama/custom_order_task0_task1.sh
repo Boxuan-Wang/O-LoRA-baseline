@@ -8,15 +8,15 @@ set -x
 # bash scripts_llama/custom_order_task0_task1.sh
 
 export CUDA_DEVICE_ORDER="PCI_BUS_ID"
-export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$HOME/.cache/huggingface}"
+export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-/home/admin/.cache/modelscope}"
 
-GPU_IDS="${GPU_IDS:-0,1,2,3,4,5,6,7}"
-DATA_ROOT="${DATA_ROOT:-DATA_ROOT}"
-BASE_MODEL="${BASE_MODEL:-initial_model/llama}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-logs_and_outputs_llama/custom_order_task0_task1}"
+GPU_IDS="${GPU_IDS:-4,5,6,7}"
+DATA_ROOT="${DATA_ROOT:-/home/admin/workspace/aop_lab/collabmask/data/cl_preprocessed_4}"
+BASE_MODEL="${BASE_MODEL:-AI-ModelScope/Mistral-7B-v0.1}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-/home/admin/workspace/aop_lab/collabmask/results/mistral_7b/olora_custom_order_task0_task1}"
 DEEPSPEED_CONFIG="${DEEPSPEED_CONFIG:-configs/ds_configs/stage2_llama.config}"
 
-TRAIN_BS="${TRAIN_BS:-1}"
+TRAIN_BS="${TRAIN_BS:-2}"
 EVAL_BS="${EVAL_BS:-4}"
 GRAD_ACC="${GRAD_ACC:-8}"
 NUM_EPOCHS="${NUM_EPOCHS:-1}"
@@ -36,9 +36,8 @@ mkdir -p "${OUTPUT_ROOT}/logs" "${OUTPUT_ROOT}/outputs"
 
 CUDA_VISIBLE_DEVICES="${GPU_IDS}" deepspeed --master_port "${PORT}" src/run_uie_lora.py \
   --do_train \
-  --do_predict \
-  --predict_with_generate \
   --model_name_or_path "${BASE_MODEL}" \
+  --cache_dir "${TRANSFORMERS_CACHE}" \
   --data_dir "${DATA_ROOT}" \
   --task_config_dir "${TASK0_CONFIG_DIR}" \
   --instruction_strategy single \
@@ -71,9 +70,8 @@ sleep 5
 
 CUDA_VISIBLE_DEVICES="${GPU_IDS}" deepspeed --master_port "${PORT}" src/run_uie_lora.py \
   --do_train \
-  --do_predict \
-  --predict_with_generate \
   --model_name_or_path "${TASK0_OUTPUT}/adapter" \
+  --cache_dir "${TRANSFORMERS_CACHE}" \
   --data_dir "${DATA_ROOT}" \
   --task_config_dir "${TASK1_CONFIG_DIR}" \
   --instruction_strategy single \
